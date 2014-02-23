@@ -11,6 +11,16 @@ for evidence of a 50/60 Hz signal emanating from the power grid. If neither
 signal is detected, a power outage event is transmitted to a server. These
 events are aggregated to detect a power outage.
 
+This fork is to support a specific version of Grid Watch designed for stationary
+phones for a small scale deployment in Kenya. The configuration of this app are:
+
+Minimal post fields
+WD timer
+No acceleration
+Audio to SD card
+User definable ID 
+
+
 
 Applications
 ------------
