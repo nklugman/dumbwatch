@@ -10,13 +10,13 @@ import java.util.ArrayList;
 
 import android.os.Environment;
 
-public class GridWatchLogger {
+public class GridWatchSync {
 
-	private final static String LOG_NAME = "gridwatch.log";
+	private final static String LOG_NAME = "gridwatch_state.log";
 
 	private File mLogFile;
 
-	public GridWatchLogger () {
+	public GridWatchSync () {
 		File root = Environment.getExternalStorageDirectory();
 		mLogFile = new File(root, LOG_NAME);
 	}
@@ -77,5 +77,5 @@ public class GridWatchLogger {
 		}
 		return "-1"; 
 	}
-		
+
 }

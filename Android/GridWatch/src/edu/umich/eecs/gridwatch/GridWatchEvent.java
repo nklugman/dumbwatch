@@ -1,6 +1,7 @@
 package edu.umich.eecs.gridwatch;
 
 import java.io.FileWriter;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +11,7 @@ import org.apache.http.NameValuePair;
 import org.apache.http.message.BasicNameValuePair;
 
 import android.util.FloatMath;
+import android.util.Log;
 
 public class GridWatchEvent {
 
@@ -63,6 +65,9 @@ public class GridWatchEvent {
 	// Returns true if we no longer need accelerometer samples.
 	public boolean addAccelerometerSample (long timeNano, float x, float y, float z) {
 
+		return true;
+		
+		/*
 		// If we have already detected movement we don't need any more samples.
 		if (mMoved) return true;
 
@@ -99,11 +104,13 @@ public class GridWatchEvent {
 			return true;
 		}
 		return false;
+		*/
 
 	}
 
-	public boolean addMicrophoneSamples (short[] buffer, int len) {
-/*
+	public boolean addMicrophoneSamples (byte[] buffer, int len) {
+
+		/*
 		try {
 			for (int i=0; i<len; i++) {
 				double index = (1.0 / 44100.0) * i;
@@ -115,7 +122,7 @@ public class GridWatchEvent {
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}*/
+		} */
 
 		mSixtyHz = true;
 		mSixtyHzFinished = true;
@@ -130,9 +137,13 @@ public class GridWatchEvent {
 		switch (mEventType) {
 		case PLUGGED:
 			return true;
+		case WD:
+			Log.d("GridWatchEvent", "WD Event");
+			break;
 		case UNPLUGGED:
-			if (!mAccelFinished) return false;
-			if (!mSixtyHzFinished) return false;
+			//if (!mAccelFinished) return false;
+			//if (!mSixtyHzFinished) return false;
+			Log.d("GridWatchEvent", "Ready for Transmission");
 			break;
 		}
 		return true;
@@ -156,6 +167,8 @@ public class GridWatchEvent {
 			nameValuePairs.add(new BasicNameValuePair("moved", String.valueOf(mMoved)));
 			nameValuePairs.add(new BasicNameValuePair("sixty_hz", String.valueOf(mSixtyHz)));
 			break;
+		case WD:
+			break;
 		case PLUGGED:
 			break;
 		}
@@ -168,6 +181,8 @@ public class GridWatchEvent {
 	private boolean needAccelerometerSamples () {
 		switch (mEventType) {
 		case PLUGGED:
+			return false;
+		case WD:
 			return false;
 		case UNPLUGGED:
 			return true;

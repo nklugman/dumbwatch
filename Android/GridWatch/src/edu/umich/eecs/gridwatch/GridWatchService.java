@@ -1,5 +1,9 @@
 package edu.umich.eecs.gridwatch;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.text.DateFormat;
@@ -36,11 +40,13 @@ import android.location.LocationManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.MediaRecorder.OnInfoListener;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.IBinder;
 import android.preference.PreferenceManager;
 import android.provider.Settings.Secure;
@@ -55,6 +61,11 @@ public class GridWatchService extends Service implements SensorEventListener {
 	private final static String INTENT_EXTRA_EVENT_INFO = "event_info";
 	private final static String INTENT_EXTRA_EVENT_TIME = "event_time";
 
+	private final static String INTENT_EXTRA_EVENT_MANUAL_ON = "event_manual_on";
+	private final static String INTENT_EXTRA_EVENT_MANUAL_OFF = "event_manual_off";
+	private final static String INTENT_EXTRA_EVENT_MANUAL_WD = "event_manual_wd";
+	private final static String INTENT_MANUAL_KEY = "manual_state";
+	
 	// How long to wait before forcing the phone to update locations.
 	// This is not set to immediate in case another app does the update
 	// first and we can just use that.
@@ -65,8 +76,27 @@ public class GridWatchService extends Service implements SensorEventListener {
 	// server.
 	private final static int EVENT_PROCESS_TIMER_PERIOD = 1000;
 
-	private final static int SAMPLE_FREQUENCY = 44100;
+	// Audio recording
 
+	//private final static int TIME_MS = 3000;
+	//private static MediaRecorder mRecorder = null;
+	
+	private AudioRecord mRecorder = null;
+	private final static int SAMPLE_FREQUENCY = 44100;
+	private final static int BIT_RATE = 16;
+	private final static int RECORDER_CHANNELS = AudioFormat.CHANNEL_IN_STEREO;
+	private final static int RECORDER_ENCODING = AudioFormat.ENCODING_PCM_16BIT;
+	private final static int RECORDER_TIME = 3000;
+	
+	private static String recordingFileName = null;
+	private final static String recordingFileTmpName = "gw_tmp.raw";
+	private final static String recordingFolder = "GW_recordings";
+	private final static String recordingExtension = ".wav"; 
+	
+	// Debug Tags
+	private static String errorTag = "error";
+	private static String noteTag = "note";
+	
 	// List of all of the active events we are currently handling
 	private ArrayList<GridWatchEvent> mEvents = new ArrayList<GridWatchEvent>();
 
@@ -88,16 +118,18 @@ public class GridWatchService extends Service implements SensorEventListener {
 	// Tool for getting a pretty date
 	private DateFormat mDateFormat = DateFormat.getDateTimeInstance();
 
-	// Object that handles writing and retreiving log messages
+	// Object that handles writing and retrieving log messages
 	private GridWatchLogger mGWLogger;
 
+	// Object that handles writing and retrieving a 
+	private GridWatchID mGWID;
 
 	@Override
 	public void onCreate() {
-
+		
 		mGWLogger = new GridWatchLogger();
 		mGWLogger.log(mDateFormat.format(new Date()), "created", null);
-
+		
 		// Receive a callback when Internet connectivity is restored
 		IntentFilter cfilter = new IntentFilter();
 		cfilter.addAction(android.net.ConnectivityManager.CONNECTIVITY_ACTION);
@@ -108,6 +140,9 @@ public class GridWatchService extends Service implements SensorEventListener {
 		ifilter.addAction(Intent.ACTION_POWER_CONNECTED);
 		ifilter.addAction(Intent.ACTION_POWER_DISCONNECTED);
 		ifilter.addAction(Intent.ACTION_DOCK_EVENT);
+		ifilter.addAction(INTENT_EXTRA_EVENT_MANUAL_OFF);
+		ifilter.addAction(INTENT_EXTRA_EVENT_MANUAL_ON);
+		ifilter.addAction(INTENT_EXTRA_EVENT_MANUAL_WD);
 		this.registerReceiver(mPowerActionReceiver, ifilter);
 
 		// Get references to the accelerometer api
@@ -118,6 +153,7 @@ public class GridWatchService extends Service implements SensorEventListener {
 		mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
 		Toast.makeText(this, "GridWatch started", Toast.LENGTH_SHORT).show();
+		
 	}
 
 	@Override
@@ -145,11 +181,30 @@ public class GridWatchService extends Service implements SensorEventListener {
 	public int onStartCommand(Intent intent, int flags, int startId) {
 		mGWLogger.log(mDateFormat.format(new Date()), "started", null);
 
+
+		if (intent != null && intent.getExtras() != null) {
+			if (intent.getExtras().getString(INTENT_MANUAL_KEY).equals(INTENT_EXTRA_EVENT_MANUAL_ON)) {
+				Log.w(noteTag, "power connected");
+				onPowerConnected();
+			}
+			else if (intent.getExtras().getString(INTENT_MANUAL_KEY).equals(INTENT_EXTRA_EVENT_MANUAL_OFF)) {
+				Log.w(noteTag, "power disconnected");
+				onPowerDisconnected();
+			} 
+			else if (intent.getExtras().getString(INTENT_MANUAL_KEY).equals(INTENT_EXTRA_EVENT_MANUAL_WD)) {
+				Log.w(noteTag, "power WD");
+				onWD();
+			} else {
+				Log.w(errorTag, "Unknown intent: " + intent.getAction());
+			}
+		}
+		
 		// We want this service to continue running until it is explicitly
 		// stopped, so return sticky.
 		return START_STICKY;
 	}
 
+	
 
 	// Handles the call back for when various power actions occur
 	private BroadcastReceiver mPowerActionReceiver = new BroadcastReceiver() {
@@ -207,20 +262,35 @@ public class GridWatchService extends Service implements SensorEventListener {
 		// list because we can send the plugged event.
 		processEvents();
 	}
+	
+	private void onWD() {
+		updateLocation();
+
+		// Create the plug event
+		GridWatchEvent gwevent = new GridWatchEvent(GridWatchEventType.WD);
+		mEvents.add(gwevent);
+
+		// This one we don't need any sensors so go ahead and process the event
+		// list because we can send the plugged event.
+		processEvents();
+		
+	}
 
 	private void onPowerDisconnected() {
 
+		Log.w(noteTag, "onPowerDisconnected");
+		
 		// Create the unplugged event
 		GridWatchEvent gwevent = new GridWatchEvent(GridWatchEventType.UNPLUGGED);
 		mEvents.add(gwevent);
-
+		
 		// Start the accelerometer getting samples
-		mSensorManager.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
-
-		// Sample the microphone
+		//mSensorManager.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
+		
+		// Sample the microphone TODO
 		Thread audioThread = new Thread(new GridWatchEventThread(gwevent));
 		audioThread.start();
-
+		
 		// Make sure the event queue is processed until it is empty
 		startEventProcessTimer();
 	}
@@ -278,7 +348,7 @@ public class GridWatchService extends Service implements SensorEventListener {
 		}
 
 		if (done) {
-			// All events are finished getting acceleromter samples, so go
+			// All events are finished getting accelerometer samples, so go
 			// ahead and stop this listener
 			mSensorManager.unregisterListener(this);
 		}
@@ -295,41 +365,166 @@ public class GridWatchService extends Service implements SensorEventListener {
 
 		@Override
 		public void run() {
-		//	Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
 
 			int recBufferSize = AudioRecord.getMinBufferSize(SAMPLE_FREQUENCY,
-					AudioFormat.CHANNEL_IN_MONO,
-					AudioFormat.ENCODING_PCM_16BIT);
-
-			AudioRecord audioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
+					RECORDER_CHANNELS,
+					RECORDER_ENCODING);
+			
+			mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, 
 					SAMPLE_FREQUENCY,
-					AudioFormat.CHANNEL_IN_MONO,
-					AudioFormat.ENCODING_PCM_16BIT,
+					RECORDER_CHANNELS,
+					RECORDER_ENCODING, 
 					recBufferSize*2);
-
-			audioRecord.startRecording();
-
-			while (true) {
-				short[] buffer = new short[recBufferSize];
-				int shortsRead = audioRecord.read(buffer, 0, buffer.length);
-				boolean done = mThisEvent.addMicrophoneSamples(buffer, shortsRead);
-				if (done) break;
+			
+			// Set up the tmp file before WAV conversation
+			String tmpFilePath = Environment.getExternalStorageDirectory().getPath();
+			File fileFolder = new File(tmpFilePath, recordingFolder);
+			if (!fileFolder.exists()) fileFolder.mkdirs();
+			File tmpFile = new File(tmpFilePath, recordingFileTmpName);
+			if (!tmpFile.exists()) tmpFile.delete();
+			String tmpFileName = fileFolder.getAbsolutePath() + "/" + recordingFileTmpName;
+			
+			byte tmpData[] = new byte[recBufferSize];
+			FileOutputStream os = null;
+			try {
+				os = new FileOutputStream(tmpFileName);
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
 			}
+			
+			// Get that recording going
+			mRecorder.startRecording();
+			Log.w(noteTag, "Starting Recording");
 
-			audioRecord.stop();
-			audioRecord.release();
+			
+		    // Take RECORDER_TIME worth of data
+			int read = 0;
+			if (os != null) {
+				if (AudioRecord.ERROR_INVALID_OPERATION != read) {
+					long t = System.currentTimeMillis();
+					while (System.currentTimeMillis() - t <= RECORDER_TIME) {
+						read = mRecorder.read(tmpData, 0, recBufferSize);
+						try {
+							os.write(tmpData);
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+				}
+			}
+			Log.w(noteTag, "Done Recording");
+			
+			// Stop recording
+			mRecorder.stop();
+			mRecorder.release();
+			
+			// Make a WAV file
+			recordingFileName = fileFolder.getAbsolutePath() + "/" + System.currentTimeMillis() + recordingExtension;	
+			
+			// Convert RAW to WAV
+			FileInputStream in = null;
+			FileOutputStream out = null;
+			long totalAudioLen = 0;
+			long totalDataLen = totalAudioLen + 36;
+			long longSampleRate = SAMPLE_FREQUENCY;
+			int channels = 2;
+			long byteRate = BIT_RATE * SAMPLE_FREQUENCY * channels/8;
+			
+			byte[] wavData = new byte[recBufferSize];
+			
+			try {
+				in = new FileInputStream(tmpFileName);
+				out = new FileOutputStream(recordingFileName);
+				totalAudioLen = in.getChannel().size();
+				totalDataLen = totalAudioLen + 36;
+				
+				WriteWavHeader(out, totalAudioLen, totalDataLen,
+						longSampleRate, channels, byteRate);
+				
+				while(in.read(wavData) != -1){
+					out.write(wavData);
+				}
+				in.close();
+				out.close();
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			Log.w(noteTag, "Done Transfering TMP to WAV");
+			
+			// Delete the tmp file
+			if (!tmpFile.exists()) tmpFile.delete();
+
 		}
+	
 	}
+	
+	private void WriteWavHeader(
+			FileOutputStream out, long totalAudioLen,
+			long totalDataLen, long longSampleRate, int channels,
+			long byteRate) throws IOException {
+		
+		byte[] header = new byte[44];
+		
+        header[0] = 'R';  // RIFF/WAVE header
+        header[1] = 'I';
+        header[2] = 'F';
+        header[3] = 'F';
+        header[4] = (byte) (totalDataLen & 0xff);
+        header[5] = (byte) ((totalDataLen >> 8) & 0xff);
+        header[6] = (byte) ((totalDataLen >> 16) & 0xff);
+        header[7] = (byte) ((totalDataLen >> 24) & 0xff);
+        header[8] = 'W';
+        header[9] = 'A';
+        header[10] = 'V';
+        header[11] = 'E';
+        header[12] = 'f';  // 'fmt ' chunk
+        header[13] = 'm';
+        header[14] = 't';
+        header[15] = ' ';
+        header[16] = 16;  // 4 bytes: size of 'fmt ' chunk
+        header[17] = 0;
+        header[18] = 0;
+        header[19] = 0;
+        header[20] = 1;  // format = 1
+        header[21] = 0;
+        header[22] = (byte) channels;
+        header[23] = 0;
+        header[24] = (byte) (longSampleRate & 0xff);
+        header[25] = (byte) ((longSampleRate >> 8) & 0xff);
+        header[26] = (byte) ((longSampleRate >> 16) & 0xff);
+        header[27] = (byte) ((longSampleRate >> 24) & 0xff);
+        header[28] = (byte) (byteRate & 0xff);
+        header[29] = (byte) ((byteRate >> 8) & 0xff);
+        header[30] = (byte) ((byteRate >> 16) & 0xff);
+        header[31] = (byte) ((byteRate >> 24) & 0xff);
+        header[32] = (byte) (2 * 16 / 8);  // block align
+        header[33] = 0;
+        header[34] = BIT_RATE;  // bits per sample
+        header[35] = 0;
+        header[36] = 'd';
+        header[37] = 'a';
+        header[38] = 't';
+        header[39] = 'a';
+        header[40] = (byte) (totalAudioLen & 0xff);
+        header[41] = (byte) ((totalAudioLen >> 8) & 0xff);
+        header[42] = (byte) ((totalAudioLen >> 16) & 0xff);
+        header[43] = (byte) ((totalAudioLen >> 24) & 0xff);
 
-
+        out.write(header, 0, 44);
+		
+	}
+	
+	
 	// Class that handles transmitting information about events. This
 	// operates asynchronously at some point in the future.
 	private class PostAlertTask extends AsyncTask<HttpPost, Void, Void> {
-
+		
 		// This gets called by the OS
 		@Override
 		protected Void doInBackground(HttpPost... httpposts) {
-			//Log.d("GridWatchService", "PostAlertTask start");
+			Log.w("GridWatchService", "PostAlertTask start");
 
 			HttpClient httpclient = new DefaultHttpClient();
 
@@ -397,7 +592,12 @@ public class GridWatchService extends Service implements SensorEventListener {
 
 	// Function to call to notify the server than an event happened on this phone.
 	private void postEvent (GridWatchEvent gwevent) {
+		
+		Log.w(noteTag, "postEvent Hit");
+		
 		List<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>(15);
+		List<NameValuePair> dumbPairs = new ArrayList<NameValuePair>(4);
+
 
 		// Get the url of the server to post to
 		SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
@@ -406,6 +606,9 @@ public class GridWatchService extends Service implements SensorEventListener {
 		// Get basics from the event
 		nameValuePairs.add(new BasicNameValuePair("time", String.valueOf(gwevent.getTimestampMilli())));
 		nameValuePairs.add(new BasicNameValuePair("event_type", gwevent.getEventType()));
+		
+		dumbPairs.add(new BasicNameValuePair("t", String.valueOf(gwevent.getTimestampMilli())));
+		dumbPairs.add(new BasicNameValuePair("e", gwevent.getEventType().substring(0, 1)));
 
 		// Get the phone's current location
 		Location gpsLocation = getLocationByProvider(LocationManager.GPS_PROVIDER);
@@ -416,6 +619,11 @@ public class GridWatchService extends Service implements SensorEventListener {
 			nameValuePairs.add(new BasicNameValuePair("gps_time", String.valueOf(gpsLocation.getTime())));
 			nameValuePairs.add(new BasicNameValuePair("gps_altitude", String.valueOf(gpsLocation.getAltitude())));
 			nameValuePairs.add(new BasicNameValuePair("gps_speed", String.valueOf(gpsLocation.getSpeed())));
+			
+			dumbPairs.add(new BasicNameValuePair("l", String.valueOf(gpsLocation.getLatitude())));
+			dumbPairs.add(new BasicNameValuePair("n", String.valueOf(gpsLocation.getLongitude())));
+			dumbPairs.add(new BasicNameValuePair("a", String.valueOf(gpsLocation.getAccuracy())));
+			dumbPairs.add(new BasicNameValuePair("g", String.valueOf(gpsLocation.getTime())));
 		}
 		Location networkLocation = getLocationByProvider(LocationManager.NETWORK_PROVIDER);
 		if (networkLocation != null) {
@@ -448,11 +656,25 @@ public class GridWatchService extends Service implements SensorEventListener {
 		}
 		nameValuePairs.add(new BasicNameValuePair("network", connection_type));
 
+		dumbPairs.add(new BasicNameValuePair("c", connection_type.substring(0, 1)));
+
+		
 		// Add any other key value pairs that the event needs to append
 		nameValuePairs.addAll(gwevent.getNameValuePairs());
 
 		// Fill in other values to send to the server
 		nameValuePairs.add(new BasicNameValuePair("id", Secure.getString(getBaseContext().getContentResolver(), Secure.ANDROID_ID)));
+		
+		mGWID = new GridWatchID();
+		dumbPairs.add(new BasicNameValuePair("u", mGWID.get_last_value()));
+
+		try {
+			dumbPairs.add(new BasicNameValuePair("v", getPackageManager().getPackageInfo(getPackageName(), 0).versionName.replace(".", "")));
+		} catch (NameNotFoundException e) {
+			dumbPairs.add(new BasicNameValuePair("v", "u"));
+		}
+		
+		/*
 		nameValuePairs.add(new BasicNameValuePair("phone_type", getDeviceName()));
 		nameValuePairs.add(new BasicNameValuePair("os", "android"));
 		nameValuePairs.add(new BasicNameValuePair("os_version", Build.VERSION.RELEASE));
@@ -461,14 +683,14 @@ public class GridWatchService extends Service implements SensorEventListener {
 		} catch (NameNotFoundException e) {
 			nameValuePairs.add(new BasicNameValuePair("app_version", "unknown"));
 		}
+		*/
 
 		HttpPost httppost = new HttpPost(alertServerURL);
 		try {
-			UrlEncodedFormEntity postparams = new UrlEncodedFormEntity(nameValuePairs);
+			UrlEncodedFormEntity postparams = new UrlEncodedFormEntity(dumbPairs);
 			httppost.setEntity(postparams);
 
 		} catch (UnsupportedEncodingException e1) {
-			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
 
@@ -484,6 +706,12 @@ public class GridWatchService extends Service implements SensorEventListener {
 
 		mGWLogger.log(mDateFormat.format(new Date()), "event_post", post_info);
 
+		// Debug
+		for (NameValuePair item : dumbPairs) {
+			Log.w(noteTag, item.getName() + "=" + item.getValue());
+		}
+		
+		
 		// Create the task to run in the background at some point in the future
 		new PostAlertTask().execute(httppost);
 	}
@@ -555,5 +783,4 @@ public class GridWatchService extends Service implements SensorEventListener {
 			});
 		}
 	}
-
 }

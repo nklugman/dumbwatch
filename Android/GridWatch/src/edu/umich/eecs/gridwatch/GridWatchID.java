@@ -10,13 +10,13 @@ import java.util.ArrayList;
 
 import android.os.Environment;
 
-public class GridWatchLogger {
+public class GridWatchID {
 
-	private final static String LOG_NAME = "gridwatch.log";
+	private final static String LOG_NAME = "gw_ID.log";
 
 	private File mLogFile;
 
-	public GridWatchLogger () {
+	public GridWatchID () {
 		File root = Environment.getExternalStorageDirectory();
 		mLogFile = new File(root, LOG_NAME);
 	}
@@ -63,7 +63,7 @@ public class GridWatchLogger {
 		return ret;
 
 	}
-	
+
 	public String get_last_value () {
 		ArrayList<String> log = read();
 		if (!log.isEmpty()) {
@@ -77,5 +77,5 @@ public class GridWatchLogger {
 		}
 		return "-1"; 
 	}
-		
+	
 }
