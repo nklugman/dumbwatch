@@ -37,5 +37,8 @@
     <string name="no_messages">No incidents reported since startup.</string>
     <string name="log">Log</string>
     <string name="refresh">Refresh</string>
+    <string name="storeID">Store ID</string>
+    <string name="report">Report</string>
+    <string name="restore">Restore</string>
 
 </resources>

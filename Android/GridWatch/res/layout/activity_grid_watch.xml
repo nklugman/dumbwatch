@@ -15,7 +15,7 @@
     android:paddingRight="@dimen/activity_horizontal_margin"
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context=".GridWatch" >
-    
+
     <TextView
         android:id="@+id/txt_title"
         android:layout_width="fill_parent"
@@ -33,14 +33,90 @@
         android:textAppearance="?android:attr/textAppearanceMedium"
         android:textColor="@color/BLACK"
         android:textSize="15sp" />
-	
-	<TextView
-	    android:id="@+id/txt_status"
-	    android:layout_width="wrap_content"
-	    android:layout_height="wrap_content"
-	    android:layout_marginTop="8dp"
-	    android:text="@string/no_messages"
-	    android:textColor="@color/BLACK" />
+
+    <TextView
+        android:id="@+id/txt_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/no_messages"
+        android:textColor="@color/BLACK" />
+
+    <View
+        android:id="@+id/view1"
+        android:layout_width="1dp"
+        android:layout_height="30dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+
+        <Button
+            android:id="@+id/outageBTN"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="outageManual"
+            android:text="@string/report"
+            android:textColor="@color/BLACK" />
+
+        <Button
+            android:id="@+id/restoreBTN"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="restoreManual"
+            android:text="@string/restore"
+            android:textColor="@color/BLACK" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+
+        <EditText
+            android:id="@+id/id_field"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ems="10"
+            android:imeOptions="actionDone"
+            android:inputType="number" >
+
+            <requestFocus />
+        </EditText>
+
+        <Button
+            android:id="@+id/storeIDBTN"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="setID"
+            android:text="@string/storeID"
+            android:textColor="@color/BLACK" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+
+        <TextView
+            android:id="@+id/id_intro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ID:" />
+
+        <View
+            android:id="@+id/view2"
+            android:layout_width="1dp"
+            android:layout_height="30dp" />
+
+        <TextView
+            android:id="@+id/id_display"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="-1" />
+
+    </LinearLayout>
 
 </LinearLayout>
 
