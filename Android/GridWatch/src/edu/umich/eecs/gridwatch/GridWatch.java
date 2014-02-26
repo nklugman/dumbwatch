@@ -9,6 +9,7 @@ import java.util.TimeZone;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.os.Build;
 import android.os.IBinder;
 
 import android.app.Activity;
@@ -40,6 +41,7 @@ public class GridWatch extends Activity {
 	private final static String INTENT_EXTRA_EVENT_MANUAL_OFF = "event_manual_off";
 	private final static String INTENT_MANUAL_KEY = "manual_state";
 	
+	
 	//private final static String INTENT_EXTRA_EVENT_TIME = "event_time";
 
 	// This is the main page view
@@ -66,6 +68,8 @@ public class GridWatch extends Activity {
 	private GridWatchID mGWID;
 	private GridWatchSync mGWSync;
 
+	private boolean sensorKill = false;
+	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -94,6 +98,16 @@ public class GridWatch extends Activity {
 		
 		// Set up the button callbacks
 		setupButtons();
+		
+		// Debug about the build. DumbWatch disables all sensors 
+		// if build is froyo. 
+		if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.GINGERBREAD){
+			Log.w(noteTag, "running with sensors");
+			
+		} else{
+			Log.w(noteTag, "disabling all sensors");
+		}		
+		
 		
 		// Configure the Watchdog
 		setupAlarm(AlarmManager.INTERVAL_DAY);
