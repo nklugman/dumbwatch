@@ -518,7 +518,7 @@ public class GridWatchService extends Service implements SensorEventListener {
 				Log.w(noteTag, "Done Transfering TMP to WAV");
 
 				// Delete the tmp file
-				if (!tmpFile.exists()) tmpFile.delete();
+				if (tmpFile.exists()) tmpFile.delete();
 			}
 		}
 	
@@ -719,9 +719,7 @@ public class GridWatchService extends Service implements SensorEventListener {
 			}
 		}
 		nameValuePairs.add(new BasicNameValuePair("network", connection_type));
-
 		dumbPairs.add(new BasicNameValuePair("c", connection_type.substring(0, 1)));
-
 		
 		// Add any other key value pairs that the event needs to append
 		nameValuePairs.addAll(gwevent.getNameValuePairs());
